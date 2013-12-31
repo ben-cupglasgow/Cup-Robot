@@ -1,0 +1,406 @@
+global ordernum
+global extractedresult
+global extractedemail
+global extractedstaffname
+global occurances
+global listneeded
+global tealist
+
+set DBpath to POSIX path of "Macintosh HD:Users:benhowell:Desktop:CUP SYSTEM:Database:Tea Stock Database.dbev"
+
+set tealist to {"No black tea required", "Afternoon Blend", "Breakfast Blend", "Byres Bold Brew", "Darjeeling", "1st flush Darjeeling", "Assam", "Oolong", "Earl Grey", "Gorgeous Grey", "Ceylon Dimbula", "Tahetian Vanilla", "Tablet in a Cup", "Rose Perfection", "Chocolate Orange and Pepper", "Gharra Chai", "Choc Chilli Explosion", "Coconut Cream Tea", "Lapsang Souchong", "Christmas Blend"}
+repeat
+	
+	delay 10
+	
+	tell application "Mail"
+		set checkMessage to 0
+		set checkMessage to (messages of mailbox "Tea Orders" of account "robot@cupglasgow.co.uk" whose read status is false)
+		set messageCount to number of items in checkMessage
+	end tell
+	set i to 0
+	
+	
+	repeat with i from 1 to number of items in checkMessage
+		set content to ""
+		set staffname to ""
+		MakeOrderNumber() of me
+		
+		tell application "Mail"
+			
+			set msg to item i of checkMessage -- msg is the DATA of the message we are currently looking at
+			set messageCount to messageCount - 1
+			set contentofmessage to msg's content as string
+			set todaysdate to current date
+			
+			ExtractTeas(contentofmessage) of me
+			ExtractContactAddress(contentofmessage) of me
+			ExtractStaffName(contentofmessage) of me
+			
+			set textfromemail to "Order " & ordernum & "
+		
+" & extractedresult
+			
+			-- display dialog textfromemail
+			
+			set looptimes to number of items in tealist
+			set blendloop to 1
+			set listneeded to ""
+			
+			repeat looptimes times
+				
+				set currentblend to item blendloop of tealist
+				
+				
+				countsubstring(textfromemail, currentblend) of me
+				set numberoftea to occurances
+				set skipbit to 0
+				
+				if numberoftea = 1 then
+					
+					tell application "Database Events"
+						
+						
+						
+						open database DBpath
+						
+						tell database "Tea Stock Database"
+							if not (record currentblend exists) then
+								log "Record does not exist. Creating record..."
+								set newitem to make new record with properties {name:currentblend}
+								tell newitem
+									make new field with properties {name:"stock", value:0}
+								end tell
+							end if
+							
+							set therecord to (first record whose name = currentblend)
+							tell therecord
+								set currentstock to value of field "stock"
+							end tell
+							log "Current stock for " & currentblend & " is " & currentstock & " g"
+							
+							
+						end tell
+						
+						
+						if (currentstock > 201) and (currentstock < 1200) then -- not out of stock yet but running low
+							
+							
+							
+							if currentblend contains "required" then
+								log ""
+							else
+								LowStockHandler(currentblend) of me
+								set newstock to currentstock - 200
+								set listneeded to listneeded & currentblend & " - 200g (LOW STOCK! - " & newstock & "g remaining)
+"
+							end if
+						end if
+						
+						if currentstock > 1200 then
+							set newstock to currentstock - 200
+							
+							tell database "Tea Stock Database"
+								set therecord to (first record whose name = currentblend)
+								tell therecord
+									set value of field "stock" to newstock
+								end tell
+								log "Updated stock for " & currentblend & " is " & newstock & " g"
+								
+								save
+								close
+								
+							end tell
+							
+							set listneeded to listneeded & currentblend & " - 200g (" & newstock & "g remaining)
+"
+						end if
+						
+						
+						
+						if currentstock < 201 then
+							
+							if currentblend contains "required" then
+								log ""
+							else
+								OutOfStockHandler(currentblend) of me
+								set listneeded to listneeded & currentblend & " - OUT OF STOCK
+							"
+								set skipbit to 1
+							end if
+						end if
+						
+						
+						
+					end tell
+				end if
+				
+				
+				
+				
+				
+				
+				set numberoftea to 0
+				
+				set blendloop to blendloop + 1
+				
+			end repeat
+			
+			SendResponse(ordernum) of me
+			NotifyManagers(extractedstaffname) of me
+		end tell
+	end repeat
+	
+	tell application "Mail"
+		try 
+		set read status of msg to true
+on error
+log ""
+end try	
+	end tell
+end repeat
+
+
+on OutOfStockHandler(currentblend)
+	log currentblend & " is out of stock!"
+	--say currentblend & " is out of stock."
+	tell application "Mail"
+		
+		set outgoingmessage to "
+Hello. 
+		
+You ordered a top up of " & currentblend & ", however that tea is currently out of stock.
+I have notified Ben and Paul about this. The rest of your order will still be processed normally.
+		
+Cheerio!
+		
+Cup Robot"
+		
+		set newmessage to make new outgoing message with properties {subject:"Cup Robot - " & currentblend & " is out of stock!", content:outgoingmessage, visible:"false"}
+		tell newmessage
+			make new recipient at end of to recipients with properties {address:extractedemail}
+			send
+		end tell
+		
+	end tell
+	
+	
+end OutOfStockHandler
+
+
+
+on MakeOrderNumber()
+	
+	set code to ""
+	
+	repeat (random number from 5 to 5) times
+		set code to code & some item of "123456789"
+	end repeat
+	code as text
+	set ordernum to code
+	get ordernum
+	return ordernum
+	
+end MakeOrderNumber
+
+on ExtractTeas(contentofmessage)
+	set extractedresult to ""
+	
+	set startpoint to offset of "Black Tea:" in contentofmessage
+	set endpoint to offset of "(Sent via" in contentofmessage
+	
+	set startpoint to startpoint - 1
+	
+	set distancetogo to endpoint - startpoint
+	set lengthoftext to length of contentofmessage
+	set loopcount to 0
+	
+	
+	repeat
+		
+		
+		set loopcount to loopcount + 1
+		if loopcount = distancetogo then exit repeat
+		set thecharacter to startpoint + loopcount
+		
+		set saveletter to text item thecharacter of contentofmessage
+		
+		set extractedresult to extractedresult & saveletter
+		
+		
+	end repeat
+	return extractedresult
+	
+	
+end ExtractTeas
+
+
+on countsubstring(thefulltext, theSubstring)
+	
+	local ASTID, thefulltext, theSubstring, i
+	set ASTID to AppleScript's text item delimiters
+	try
+		set AppleScript's text item delimiters to theSubstring
+		set occurances to (count thefulltext's text items) - 1
+		set AppleScript's text item delimiters to ASTID
+		return occurances
+	on error eMsg number eNum
+		set AppleScript's text item delimiters to ASTID
+		error "Can't countSubstring: " & eMsg number eNum
+	end try
+	
+	return occurances
+end countsubstring
+
+on ExtractContactAddress(contentofmessage)
+	
+	set extractedemail to ""
+	
+	set startpoint to offset of "Your Email Address:" in contentofmessage
+	set endpoint to offset of "Branch:" in contentofmessage
+	
+	set startpoint to startpoint + 19
+	
+	set distancetogo to endpoint - startpoint
+	set lengthoftext to length of contentofmessage
+	set loopcount to 0
+	
+	
+	repeat
+		
+		
+		set loopcount to loopcount + 1
+		if loopcount = distancetogo then exit repeat
+		set thecharacter to startpoint + loopcount
+		
+		set saveletter to text item thecharacter of contentofmessage
+		
+		set extractedemail to extractedemail & saveletter
+		
+		
+	end repeat
+	return extractedemail
+	
+	
+	
+end ExtractContactAddress
+
+
+on SendResponse(ordernum)
+	
+	tell application "Mail"
+		
+		set outgoingmessage to "
+Hello. 
+		
+You're tea order has been processed. If any teas are out of stock I'll send you another email to let you know.
+		
+Your reference for this order is " & ordernum & "
+
+Order Contents:
+" & listneeded & "
+				
+Cheerio!
+Cup Robot"
+		
+		set newmessage to make new outgoing message with properties {subject:"Cup Robot - Order Confirmation - " & ordernum, content:outgoingmessage, visible:"false"}
+		tell newmessage
+			make new recipient at end of to recipients with properties {address:extractedemail}
+			send
+		end tell
+		
+	end tell
+	
+	log "Sent confirmation of order to " & extractedemail
+end SendResponse
+
+on NotifyManagers(extractedstaffname)
+	
+	tell application "Mail"
+		
+		set outgoingmessage to "
+Hello. 
+		
+A new tea order has arrived!
+
+" & extractedstaffname & " requires:
+
+" & listneeded & "
+
+
+
+The reference for this order is:" & ordernum & "
+		
+Cheerio!
+		
+Cup Robot"
+		
+		set newmessage to make new outgoing message with properties {subject:"New tea top up order from" & extractedstaffname, content:outgoingmessage, visible:"false"}
+		tell newmessage
+			make new recipient at end of to recipients with properties {address:"ben@cupglasgow.co.uk"}
+			--make new recipient at end of to recipients with properties {address:"paul@cupglasgow.co.uk"}
+			send
+		end tell
+		
+	end tell
+	
+end NotifyManagers
+
+
+on ExtractStaffName(contentofmessage)
+	
+	set extractedstaffname to ""
+	
+	set startpoint to offset of "Staff Member:" in contentofmessage
+	set endpoint to offset of "Your Email" in contentofmessage
+	
+	set startpoint to startpoint + 12
+	
+	set distancetogo to endpoint - startpoint
+	set lengthoftext to length of contentofmessage
+	set loopcount to 0
+	
+	
+	repeat
+		
+		
+		set loopcount to loopcount + 1
+		if loopcount = distancetogo then exit repeat
+		set thecharacter to startpoint + loopcount
+		
+		set saveletter to text item thecharacter of contentofmessage
+		
+		set extractedstaffname to extractedstaffname & saveletter
+		
+		
+	end repeat
+	return extractedstaffname
+	
+	
+	
+end ExtractStaffName
+
+on LowStockHandler(currentblend)
+	log currentblend & " is running low on stock!"
+	--say currentblend & " is running low on stock."
+	tell application "Mail"
+		
+		set outgoingmessage to "
+Hello. 
+		
+" & currentblend & " is running low on stock.
+Less than 1000g remains.
+		
+Cheerio!
+		
+Cup Robot"
+		
+		set newmessage to make new outgoing message with properties {subject:"Cup Robot - " & currentblend & " is running low!", content:outgoingmessage, visible:"false"}
+		tell newmessage
+			--make new recipient at end of to recipients with properties {address:"paul@cupglasgow.co.uk"}
+			make new recipient at end of to recipients with properties {address:"ben@cupglasgow.co.uk"}
+			send
+		end tell
+		
+	end tell
+end LowStockHandler
